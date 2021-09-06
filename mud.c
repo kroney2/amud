@@ -2,6 +2,8 @@
 #include <SDL2/SDL_video.h>
 #include <SDL2/SDL_rect.h>
 #include <SDL2/SDL_ttf.h>
+#include <stdlib.h>
+#include <time.h>
 
 #define FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
@@ -76,40 +78,32 @@ int main()
     for (int i=0; i < map_width*map_height; i++)
         map[i] = SPACE;
 
-    int nrooms = 3;
+    int nrooms = 2;
     SDL_Rect rm[nrooms];
-    memset(rm, 0, sizeof(rm)*nrooms);
+    memset(rm, 0, sizeof(SDL_Rect)*nrooms);
 
-    rm[0].x = 5;
-    rm[0].w = 5;
-    rm[0].y = 7;
-    rm[0].h = 3;
-
-    rm[1].x = 10;
-    rm[1].w = 6;
-    rm[1].y = 4;
-    rm[1].h = 7;
-
-    rm[2].x = 7;
-    rm[2].w = 7;
-    rm[2].y = 7;
-    rm[2].h = 7;
+    // seed randomness
+//    srand(time(NULL));
 
     for (int i=0; i < nrooms; i++) {
+        rm[i].w = rand()%map_width;
+        rm[i].x = rand()%(map_width-rm[i].w);
+        rm[i].h = rand()%map_height;
+        rm[i].y = rand()%(map_height-rm[i].h);
     for (int y=0; y < map_height; y++)
     {
         for (int x=0; x < map_width; x++)
         {
-
-            //TODO(Caleb): Fix bug with walls on top of screen
-            if ((x >= rm[i].x && x <= rm[i].w + rm[i].x
-                && (y == rm[i].y || y == rm[i].h + rm[i].y))
-                || (y > rm[i].y && y < rm[i].h + rm[i].y
-                && (x == rm[i].x || x == rm[i].w + rm[i].x)))
+            if (x >= rm[i].x && x <= rm[i].w + rm[i].x
+                        && (y == rm[i].y || y == rm[i].h + rm[i].y))
             {
                 map[(y*map_width)+x] = WALL;
             }
-
+            else if (y > rm[i].y && y < rm[i].h + rm[i].y
+                    && (x == rm[i].x || x == rm[i].w + rm[i].x))
+            {
+                map[(y*map_width)+x] = WALL;
+            }
             else if (x > rm[i].x && x < rm[i].w + rm[i].x
                     && y > rm[i].y && y < rm[i].h + rm[i].y)
             {
@@ -117,6 +111,16 @@ int main()
             }
         }
     }}
+
+    /*
+    * Connect the rooms
+    * =====================
+    * 1 ) Pick a side of a rm if on the left side continue left until
+    * a floor tile is hit or until xpos is 0
+    *
+    * 2 ) if a floor is found mark this room as "connected"
+    * generate a passage connecting the two rooms, continue to next room
+    */
 
     SDL_Point player_pos;
     player_pos.x = map_width/2;
@@ -193,7 +197,6 @@ int main()
                         texture = space_texture;
                         break;
                 }
-
                 tile.x = x*tile.w;
                 tile.y = y*tile.h;
                 SDL_RenderCopy(
