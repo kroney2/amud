@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <time.h>
 
+#define _DEBUG
+
 #define FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 
 typedef enum _tiles_e
@@ -15,8 +17,18 @@ typedef enum _tiles_e
     SPACE=' '-32
 } tiles_e;
 
+typedef struct _bsp_node_t
+{
+    SDL_Rect r;
+    struct _bsp_node_t* children[2];
+    struct _bsp_node_t* parent;
+
+} bsp_node_t;
+
 const int map_width = 35;
 const int map_height = 21;
+
+void insert_into_bsp_tree(bsp_node_t* root, int axis);
 
 int main()
 {
@@ -59,6 +71,10 @@ int main()
         fprintf(stderr, "in main: Failed to load font\n");
         return 1;
     }
+
+    // seed randomness
+    srand(time(NULL));
+
     SDL_Color color = {255, 255, 255};
     SDL_Texture* texture_cache[128-32];
     for (Uint16 ch=32; ch < 128-32; ++ch)
@@ -93,12 +109,9 @@ int main()
     for (int i=0; i < map_width*map_height; i++)
         map[i] = SPACE;
 
-    int nrooms = 1;
+    int nrooms = 3;
     SDL_Rect rm[nrooms];
     memset(rm, 0, sizeof(SDL_Rect)*nrooms);
-
-    // seed randomness
-    //srand(time(NULL));
 
     for (int i=0; i < nrooms; i++) {
         rm[i].w = rand()%map_width;
@@ -126,6 +139,23 @@ int main()
             }
         }
     }}
+
+    // Initalize BSP_node root
+    bsp_node_t root;
+    root.parent = NULL;
+    root.r.w = map_width;
+    root.r.h = map_height;
+    insert_into_bsp_tree(&root, rand()%2);
+
+    const int max_depth = 4;
+    bsp_node_t* node_q[(2**max_depth)-1]
+    for (bsp_node_t* node=&root, int i; i < (2**max_depth)-1; i+=2)
+    {
+        node_q[i] = node->children[0];
+        node_q[i+1] = node->children[1];
+
+    }
+    // insert into
 
     /*
     * TODO(Caleb): Connect Rooms
@@ -278,3 +308,49 @@ int main()
 
     return 0;
 }
+
+void insert_into_bsp_tree(bsp_node_t* root, int axis)
+{
+    bsp_node_t* bsp_child1 = root->children[0];
+    bsp_node_t* bsp_child2 = root->children[1];
+
+    bsp_child1 = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
+    bsp_child2 = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
+
+    bsp_child1->parent = root;
+    bsp_child2->parent = root;
+
+    int new_size = 0;
+    // X axis partition
+    if (axis == 0)
+    {
+        new_size = rand()%root->r.h;
+        if (new_size == 0)
+            new_size = 1;
+
+        bsp_child1->r.w = new_size;
+        bsp_child1->r.h = root->r.h; // gets dimen of parent that was not split
+
+        bsp_child2->r.w = root->r.w-new_size; // gets DELT root dimen - sibling dimen
+        bsp_child2->r.h = root->r.h; // same for the other child node
+    }
+    // Y axis partition
+    else
+    {
+        new_size = rand()%root->r.w;
+        if (new_size == 0)
+            new_size = 1;
+
+        bsp_child1->r.w = root->r.w;
+        bsp_child1->r.h = new_size;
+
+        bsp_child2->r.w = root->r.w;
+        bsp_child2->r.h = root->r.h-new_size;
+    }
+
+#ifdef _DEBUG
+    printf("child 1 w: %d, h; %d\n", bsp_child1->r.w, bsp_child1->r.h);
+    printf("child 2 w: %d, h; %d\n", bsp_child2->r.w, bsp_child2->r.h);
+#endif
+}
+
