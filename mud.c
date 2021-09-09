@@ -25,10 +25,17 @@ typedef struct _bsp_node_t
 
 } bsp_node_t;
 
+typedef struct _bsp_queue_t
+{
+    bsp_node_t* data;
+    struct _bsp_queue_t* next;
+
+} bsp_queue_t;
+
 const int map_width = 35;
 const int map_height = 21;
 
-void insert_into_bsp_tree(bsp_node_t* root, int axis);
+int insert_into_bsp_tree(bsp_node_t* root, int axis);
 
 int main()
 {
@@ -140,22 +147,43 @@ int main()
         }
     }}
 
-    // Initalize BSP_node root
-    bsp_node_t root;
-    root.parent = NULL;
-    root.r.w = map_width;
-    root.r.h = map_height;
-    insert_into_bsp_tree(&root, rand()%2);
+     // Initalize BSP_node root
+     bsp_node_t root;
+     root.parent = NULL;
+     root.r.w = map_width;
+     root.r.h = map_height;
 
-    const int max_depth = 4;
-    bsp_node_t* node_q[(2**max_depth)-1]
-    for (bsp_node_t* node=&root, int i; i < (2**max_depth)-1; i+=2)
-    {
-        node_q[i] = node->children[0];
-        node_q[i+1] = node->children[1];
+     bsp_queue_t* q = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
+     q->data = &root;
+     q->next = NULL;
 
-    }
-    // insert into
+     for (int i=0; i<5; i++)
+     {
+         bsp_queue_t* qPtr = q;
+         if(insert_into_bsp_tree(qPtr->data, rand()%2))
+         {
+             // TODO handle if rooms get children or not...
+             // Note: contingent on return status of isrt_bsp...()
+             break;
+         }
+
+         bsp_node_t* child1 =  qPtr->data->children[0];
+         bsp_node_t* child2 =  qPtr->data->children[1];
+         q->next = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
+
+         q->next->data = NULL;
+         q->next->next = NULL;
+         for (; qPtr->data != NULL; qPtr=qPtr->next);
+         qPtr->data = child1;
+
+         qPtr->next = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
+         qPtr->next->data = child2;
+         qPtr->next->next = NULL;
+
+         bsp_queue_t* temp = q;
+         q = q->next;
+         free(temp);
+     }
 
     /*
     * TODO(Caleb): Connect Rooms
@@ -309,8 +337,12 @@ int main()
     return 0;
 }
 
-void insert_into_bsp_tree(bsp_node_t* root, int axis)
+int insert_into_bsp_tree(bsp_node_t* root, int axis)
 {
+    int min_rm_size = 3;
+    if (root->r.w < min_rm_size*2 || root->r.h < min_rm_size*2)
+        return 1;
+
     bsp_node_t* bsp_child1 = root->children[0];
     bsp_node_t* bsp_child2 = root->children[1];
 
@@ -321,25 +353,35 @@ void insert_into_bsp_tree(bsp_node_t* root, int axis)
     bsp_child2->parent = root;
 
     int new_size = 0;
-    // X axis partition
+    // Y Axis partitioning
+    // width is being modified
+    // height stays the same
     if (axis == 0)
     {
-        new_size = rand()%root->r.h;
-        if (new_size == 0)
-            new_size = 1;
+#ifdef _DEBUG
+    printf("Preforming Y axis partition\n");
+#endif
+        new_size = rand()%root->r.w;
+        if (new_size < min_rm_size)
+            new_size = min_rm_size;
 
         bsp_child1->r.w = new_size;
-        bsp_child1->r.h = root->r.h; // gets dimen of parent that was not split
+        bsp_child1->r.h = root->r.h;
 
-        bsp_child2->r.w = root->r.w-new_size; // gets DELT root dimen - sibling dimen
-        bsp_child2->r.h = root->r.h; // same for the other child node
+        bsp_child2->r.w = root->r.w-new_size;
+        bsp_child2->r.h = root->r.h;
     }
-    // Y axis partition
+    // X Axis partiioning
+    // height is being modfied
+    // width stays the same
     else
     {
-        new_size = rand()%root->r.w;
-        if (new_size == 0)
-            new_size = 1;
+#ifdef _DEBUG
+    printf("Preforming X axis partition\n");
+#endif
+        new_size = rand()%root->r.h;
+        if (new_size < min_rm_size)
+            new_size = min_rm_size;
 
         bsp_child1->r.w = root->r.w;
         bsp_child1->r.h = new_size;
@@ -348,9 +390,13 @@ void insert_into_bsp_tree(bsp_node_t* root, int axis)
         bsp_child2->r.h = root->r.h-new_size;
     }
 
+    root->children[0] = bsp_child1;
+    root->children[1] = bsp_child2;
+
 #ifdef _DEBUG
     printf("child 1 w: %d, h; %d\n", bsp_child1->r.w, bsp_child1->r.h);
     printf("child 2 w: %d, h; %d\n", bsp_child2->r.w, bsp_child2->r.h);
 #endif
-}
 
+    return 0;
+}
