@@ -6,8 +6,8 @@
 #include <time.h>
 
 #define _DEBUG
-
-#define FONT_PATH "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+#define FONT_PATH "/home/caleb/.local/share/fonts/ColleenAntics.ttf"
+#define MIN_RM_SIZE  3
 
 typedef enum _tiles_e
 {
@@ -32,8 +32,8 @@ typedef struct _bsp_queue_t
 
 } bsp_queue_t;
 
-const int map_width = 35;
-const int map_height = 21;
+const int map_width = 55;
+const int map_height = 25;
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis);
 
@@ -72,7 +72,7 @@ int main()
         return 1;
     }
     TTF_Font *font;
-    font = TTF_OpenFont(FONT_PATH, 16);
+    font = TTF_OpenFont(FONT_PATH, 32);
     if (font == NULL)
     {
         fprintf(stderr, "in main: Failed to load font\n");
@@ -92,8 +92,6 @@ int main()
     }
     TTF_CloseFont(font);
 
-    const char* text = "Really long string that will exceed the length of the text box";
-
     SDL_Rect mapr;
     mapr.x = 0;
     mapr.y = 0;
@@ -102,10 +100,6 @@ int main()
     SDL_Rect logr;
     logr.w = mapr.w;
     logr.h = mapr.h;
-
-    // Scale map elements by 2
-    mapr.w*=2;
-    mapr.h*=2;
 
     logr.x = (mapr.w*map_width)+logr.w;
     logr.y = 0;
@@ -153,32 +147,41 @@ int main()
      root.r.w = map_width;
      root.r.h = map_height;
 
-     bsp_queue_t* q = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
+     bsp_queue_t* q = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
      q->data = &root;
-     q->next = NULL;
 
-     for (int i=0; i<5; i++)
+     for (int i=0; i < 3; i++)
      {
          bsp_queue_t* qPtr = q;
-         if(insert_into_bsp_tree(qPtr->data, rand()%2))
+         bsp_node_t* child1;
+         bsp_node_t* child2;
+         const int err = insert_into_bsp_tree(qPtr->data, rand()%2);
+
+         if (err == 0)
          {
-             // TODO handle if rooms get children or not...
-             // Note: contingent on return status of isrt_bsp...()
-             break;
+             child1 =  qPtr->data->children[0];
+             child2 =  qPtr->data->children[1];
          }
+         else if (err == 1)
+             child1 =  qPtr->data->children[0];
+         else if (err == 2)
+             child2 =  qPtr->data->children[1];
 
-         bsp_node_t* child1 =  qPtr->data->children[0];
-         bsp_node_t* child2 =  qPtr->data->children[1];
-         q->next = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
+         q->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
 
-         q->next->data = NULL;
-         q->next->next = NULL;
+         // get to the end of the list
          for (; qPtr->data != NULL; qPtr=qPtr->next);
-         qPtr->data = child1;
 
-         qPtr->next = (bsp_queue_t*)malloc(sizeof(bsp_queue_t));
-         qPtr->next->data = child2;
-         qPtr->next->next = NULL;
+         if (err == 0)
+         {
+             qPtr->data = child1;
+             qPtr->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+             qPtr->next->data = child2;
+         }
+         else if (err == 1)
+             qPtr->data = child1;
+         else if (err == 2)
+             qPtr->data = child2;
 
          bsp_queue_t* temp = q;
          q = q->next;
@@ -273,7 +276,7 @@ int main()
                    return 0;
                case SDLK_l:
                {
-                    logr.y += logr.h*2;
+                    logr.y += logr.h;//*2;
                     char* msgs[] = {
                         "CALEB WAS HIT BY A BUS SHOULD'VE HAD MORE PEOPLE WRITING JPC",
                         "KYLE IS DOING MATH...", "THE PLOT THICKENS",
@@ -339,64 +342,43 @@ int main()
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis)
 {
-    int min_rm_size = 3;
-    if (root->r.w < min_rm_size*2 || root->r.h < min_rm_size*2)
+    if (root->r.w < MIN_RM_SIZE && root->r.h < MIN_RM_SIZE)
+        return -1;
+
+    int new_size;
+    int new_size2;
+    int new_sizey = rand()%root->r.w;
+    int new_sizex = rand()%root->r.h;
+
+    new_size = (axis) ? new_sizex : new_sizey;
+    new_size2 = (axis) ? root->r.h - new_sizex : root->r.w - new_sizey;
+
+    if (new_size >= MIN_RM_SIZE)
+    {
+        root->children[0] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
+        root->children[0]->r.w = (axis) ? root->r.w : new_size;
+        root->children[0]->r.h = (axis) ? new_size : root->r.h;
+        root->children[0]->parent = root;
+    }
+
+    if (new_size2 >= MIN_RM_SIZE)
+    {
+        root->children[1] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
+        root->children[1]->r.w = (axis) ? root->r.w : root->r.w - new_size;
+        root->children[1]->r.h = (axis) ? root->r.h - new_size : root->r.h;
+        root->children[1]->parent = root;
+    }
+
+#ifdef _DEBUG
+    if (root->children[0] != NULL)
+        printf("child 1 w: %d, h; %d\n", root->children[0]->r.w, root->children[0]->r.h);
+    if (root->children[1] != NULL)
+        printf("child 2 w: %d, h; %d\n", root->children[1]->r.w, root->children[1]->r.h);
+#endif
+
+    if (root->children[0] != NULL && root->children[1] != NULL)
+        return 0;
+    if (root->children[0] != NULL)
         return 1;
-
-    bsp_node_t* bsp_child1 = root->children[0];
-    bsp_node_t* bsp_child2 = root->children[1];
-
-    bsp_child1 = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-    bsp_child2 = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-
-    bsp_child1->parent = root;
-    bsp_child2->parent = root;
-
-    int new_size = 0;
-    // Y Axis partitioning
-    // width is being modified
-    // height stays the same
-    if (axis == 0)
-    {
-#ifdef _DEBUG
-    printf("Preforming Y axis partition\n");
-#endif
-        new_size = rand()%root->r.w;
-        if (new_size < min_rm_size)
-            new_size = min_rm_size;
-
-        bsp_child1->r.w = new_size;
-        bsp_child1->r.h = root->r.h;
-
-        bsp_child2->r.w = root->r.w-new_size;
-        bsp_child2->r.h = root->r.h;
-    }
-    // X Axis partiioning
-    // height is being modfied
-    // width stays the same
-    else
-    {
-#ifdef _DEBUG
-    printf("Preforming X axis partition\n");
-#endif
-        new_size = rand()%root->r.h;
-        if (new_size < min_rm_size)
-            new_size = min_rm_size;
-
-        bsp_child1->r.w = root->r.w;
-        bsp_child1->r.h = new_size;
-
-        bsp_child2->r.w = root->r.w;
-        bsp_child2->r.h = root->r.h-new_size;
-    }
-
-    root->children[0] = bsp_child1;
-    root->children[1] = bsp_child2;
-
-#ifdef _DEBUG
-    printf("child 1 w: %d, h; %d\n", bsp_child1->r.w, bsp_child1->r.h);
-    printf("child 2 w: %d, h; %d\n", bsp_child2->r.w, bsp_child2->r.h);
-#endif
-
-    return 0;
+    return 2;
 }
