@@ -6,7 +6,7 @@
 #include <time.h>
 
 #define _DEBUG
-#define FONT_PATH "/home/caleb/.local/share/fonts/ColleenAntics.ttf"
+#define FONT_PATH "ColleenAntics.ttf"
 #define MIN_RM_SIZE  3
 
 typedef enum _tiles_e
@@ -104,11 +104,13 @@ int main()
     logr.x = (mapr.w*map_width)+logr.w;
     logr.y = 0;
 
+    // TODO: assign map_width/height dynamicly
+
     int logr_startx = logr.x, logr_starty = logr.y;
 
     tiles_e map[map_width*map_height];
     for (int i=0; i < map_width*map_height; i++)
-        map[i] = SPACE;
+        map[i] = FLOOR;
 
     int nrooms = 3;
     SDL_Rect rm[nrooms];
@@ -345,27 +347,29 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
     if (root->r.w < MIN_RM_SIZE && root->r.h < MIN_RM_SIZE)
         return -1;
 
-    int new_size;
-    int new_size2;
-    int new_sizey = rand()%root->r.w;
-    int new_sizex = rand()%root->r.h;
+     int sizey = rand()%root->r.h;
+     int sizex = rand()%root->r.w;
 
-    new_size = (axis) ? new_sizex : new_sizey;
-    new_size2 = (axis) ? root->r.h - new_sizex : root->r.w - new_sizey;
+     int part1_sz = (axis) ? sizey : sizex;
+     int part2_sz = (axis) ? root->r.h - sizey
+         : root->r.w - sizex;
 
-    if (new_size >= MIN_RM_SIZE)
+    root->children[0] = NULL;
+    root->children[1] = NULL;
+
+    if (part1_sz >= MIN_RM_SIZE)
     {
         root->children[0] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-        root->children[0]->r.w = (axis) ? root->r.w : new_size;
-        root->children[0]->r.h = (axis) ? new_size : root->r.h;
+        root->children[0]->r.w = (axis) ? root->r.w : part1_sz;
+        root->children[0]->r.h = (axis) ? part1_sz : root->r.h;
         root->children[0]->parent = root;
     }
 
-    if (new_size2 >= MIN_RM_SIZE)
+    if (part2_sz >= MIN_RM_SIZE)
     {
         root->children[1] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-        root->children[1]->r.w = (axis) ? root->r.w : root->r.w - new_size;
-        root->children[1]->r.h = (axis) ? root->r.h - new_size : root->r.h;
+        root->children[1]->r.w = (axis) ? root->r.w : root->r.w - part1_sz;
+        root->children[1]->r.h = (axis) ? root->r.h - part1_sz : root->r.h;
         root->children[1]->parent = root;
     }
 
