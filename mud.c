@@ -7,7 +7,7 @@
 
 #define _DEBUG
 #define FONT_PATH "ColleenAntics.ttf"
-#define MIN_RM_SIZE  3
+#define MIN_RM_SIZE 3
 
 typedef enum _tiles_e
 {
@@ -32,7 +32,7 @@ typedef struct _bsp_queue_t
 
 } bsp_queue_t;
 
-const int map_width = 55;
+const int map_width = 55; // 55
 const int map_height = 25;
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis);
@@ -80,13 +80,21 @@ int main()
     }
 
     // seed randomness
+    SDL_Color c;
     srand(time(NULL));
-
-    SDL_Color color = {255, 255, 255};
     SDL_Texture* texture_cache[128-32];
     for (Uint16 ch=32; ch < 128-32; ++ch)
     {
-        SDL_Surface* glyph_surf = TTF_RenderGlyph_Solid(font, ch, color);
+        if (ch == '@')
+        {
+            c.r = rand()%255; c.g = rand()%255; c.b = rand()%255;
+        }
+        else
+        {
+            c.r = 255; c.g = 255; c.b = 255;
+        }
+
+        SDL_Surface* glyph_surf = TTF_RenderGlyph_Solid(font, ch, c);
         texture_cache[ch-32] = SDL_CreateTextureFromSurface(renderer, glyph_surf);
         SDL_FreeSurface(glyph_surf);
     }
@@ -108,101 +116,77 @@ int main()
 
     int logr_startx = logr.x, logr_starty = logr.y;
 
+    // Initalize BSP_node root
+    bsp_node_t root;
+    root.parent = NULL;
+    root.r.w = map_width;
+    root.r.h = map_height;
+
+    bsp_queue_t* q = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+    q->data = &root;
+    q->next = NULL;
+
+    for (bsp_queue_t* qPtr = q; qPtr->data != NULL; qPtr = qPtr->next)
+    {
+         const int err = insert_into_bsp_tree(qPtr->data, rand()%2);
+
+         // get to the end of the list
+         bsp_queue_t* eol;
+         for (eol = qPtr; eol->next != NULL; eol=eol->next);
+
+         eol->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+//            printf("CURR: W: %d, H: %d\n", curr->data->r.w, curr->data->r.h);
+
+         if (err == 0)
+         {
+             eol->next->data = qPtr->data->children[0];
+             eol->next->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+             eol->next->next->data = qPtr->data->children[1];
+         }
+         else if (err == 1)
+             eol->next->data = qPtr->data->children[0];
+         else if (err == 2)
+             eol->next->data = qPtr->data->children[1];
+    }
+
+        // this will happen when we are building the rooms
+//        bsp_queue_t* temp = q;
+//        q = q->next;
+//        free(temp);
+
     tiles_e map[map_width*map_height];
     for (int i=0; i < map_width*map_height; i++)
-        map[i] = FLOOR;
+        map[i] = SPACE;
 
-    int nrooms = 3;
-    SDL_Rect rm[nrooms];
-    memset(rm, 0, sizeof(SDL_Rect)*nrooms);
-
-    for (int i=0; i < nrooms; i++) {
-        rm[i].w = rand()%map_width;
-        rm[i].x = rand()%(map_width-rm[i].w);
-        rm[i].h = rand()%map_height;
-        rm[i].y = rand()%(map_height-rm[i].h);
+    for (; q->data != NULL; q=q->next) {
+        SDL_Rect rm = q->data->r;
     for (int y=0; y < map_height; y++)
     {
         for (int x=0; x < map_width; x++)
         {
-            if (x >= rm[i].x && x <= rm[i].w + rm[i].x
-                        && (y == rm[i].y || y == rm[i].h + rm[i].y))
+            if (x >= rm.x && x <= rm.w + rm.x
+                        && (y == rm.y || y == rm.h + rm.y))
             {
                 map[(y*map_width)+x] = WALL;
             }
-            else if (y > rm[i].y && y < rm[i].h + rm[i].y
-                    && (x == rm[i].x || x == rm[i].w + rm[i].x))
+            else if (y > rm.y && y < rm.h + rm.y
+                    && (x == rm.x || x == rm.w + rm.x))
             {
                 map[(y*map_width)+x] = WALL;
             }
-            else if (x > rm[i].x && x < rm[i].w + rm[i].x
-                    && y > rm[i].y && y < rm[i].h + rm[i].y)
+            else if (x > rm.x && x < rm.w + rm.x
+                    && y > rm.y && y < rm.h + rm.y)
             {
                 map[(y*map_width)+x] = FLOOR;
             }
         }
     }}
 
-     // Initalize BSP_node root
-     bsp_node_t root;
-     root.parent = NULL;
-     root.r.w = map_width;
-     root.r.h = map_height;
-
-     bsp_queue_t* q = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-     q->data = &root;
-
-     for (int i=0; i < 3; i++)
-     {
-         bsp_queue_t* qPtr = q;
-         bsp_node_t* child1;
-         bsp_node_t* child2;
-         const int err = insert_into_bsp_tree(qPtr->data, rand()%2);
-
-         if (err == 0)
-         {
-             child1 =  qPtr->data->children[0];
-             child2 =  qPtr->data->children[1];
-         }
-         else if (err == 1)
-             child1 =  qPtr->data->children[0];
-         else if (err == 2)
-             child2 =  qPtr->data->children[1];
-
-         q->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-
-         // get to the end of the list
-         for (; qPtr->data != NULL; qPtr=qPtr->next);
-
-         if (err == 0)
-         {
-             qPtr->data = child1;
-             qPtr->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-             qPtr->next->data = child2;
-         }
-         else if (err == 1)
-             qPtr->data = child1;
-         else if (err == 2)
-             qPtr->data = child2;
-
-         bsp_queue_t* temp = q;
-         q = q->next;
-         free(temp);
-     }
-
-    /*
-    * TODO(Caleb): Connect Rooms
-    * =====================
-    * 1 ) Pick a side of a rm if on the left side continue left until
-    * a floor tile is hit or until xpos is 0
-    *
-    * 2 ) if a floor is found mark this room as "connected"
-    * generate a passage connecting the two rooms, continue to next room
-    */
-
     SDL_Point player_pos;
-    player_pos.x = (rm[0].w/2) + rm[0].x;
-    player_pos.y = (rm[0].h/2) + rm[0].y;
+//    player_pos.x = (rm.w/2) + rm.x;
+//    player_pos.y = (rm.h/2) + rm.y;
+    player_pos.x = map_width/2;
+    player_pos.y = map_height/2;
     map[(player_pos.y*map_width)+player_pos.x] = PLAYER;
 
     SDL_Event event;
@@ -347,8 +331,8 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
     if (root->r.w < MIN_RM_SIZE && root->r.h < MIN_RM_SIZE)
         return -1;
 
-     int sizey = rand()%root->r.h;
-     int sizex = rand()%root->r.w;
+     int sizey = (root->r.h / 2)+(rand()%2);
+     int sizex = (root->r.w / 2)+(rand()%2);
 
      int part1_sz = (axis) ? sizey : sizex;
      int part2_sz = (axis) ? root->r.h - sizey
@@ -374,10 +358,12 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
     }
 
 #ifdef _DEBUG
+    if (root->children[0] != NULL || root->children[1] != NULL)
+        printf("ROOT: W: %d, H: %d\n", root->r.w, root->r.h);
     if (root->children[0] != NULL)
-        printf("child 1 w: %d, h; %d\n", root->children[0]->r.w, root->children[0]->r.h);
+        printf("|-Child1 W: %d, H: %d\n", root->children[0]->r.w, root->children[0]->r.h);
     if (root->children[1] != NULL)
-        printf("child 2 w: %d, h; %d\n", root->children[1]->r.w, root->children[1]->r.h);
+        printf("|-Child2 W: %d, H: %d\n", root->children[1]->r.w, root->children[1]->r.h);
 #endif
 
     if (root->children[0] != NULL && root->children[1] != NULL)
