@@ -7,7 +7,12 @@
 
 #define _DEBUG
 #define FONT_PATH "ColleenAntics.ttf"
-#define MIN_RM_SIZE 3
+#define SCREEN_WIDTH 1280
+#define SCREEN_HEIGHT 800
+#define FONT_SIZE 25
+#define MAP_WIDTH 40
+#define MAP_HEIGHT 25
+#define MIN_RM_SIZE 4
 
 typedef enum _tiles_e
 {
@@ -32,9 +37,6 @@ typedef struct _bsp_queue_t
 
 } bsp_queue_t;
 
-const int map_width = 55; // 55
-const int map_height = 25;
-
 int insert_into_bsp_tree(bsp_node_t* root, int axis);
 
 int main()
@@ -45,8 +47,8 @@ int main()
             "muddy",
             SDL_WINDOWPOS_UNDEFINED,
             SDL_WINDOWPOS_UNDEFINED,
-            1280,
-            800,
+            SCREEN_WIDTH,
+            SCREEN_HEIGHT,
             SDL_WINDOW_ALLOW_HIGHDPI
     );
     if (window == NULL)
@@ -72,16 +74,15 @@ int main()
         return 1;
     }
     TTF_Font *font;
-    font = TTF_OpenFont(FONT_PATH, 32);
+    font = TTF_OpenFont(FONT_PATH, FONT_SIZE);
     if (font == NULL)
     {
         fprintf(stderr, "in main: Failed to load font\n");
         return 1;
     }
-
-    // seed randomness
-    SDL_Color c;
     srand(time(NULL));
+
+    SDL_Color c;
     SDL_Texture* texture_cache[128-32];
     for (Uint16 ch=32; ch < 128-32; ++ch)
     {
@@ -93,7 +94,6 @@ int main()
         {
             c.r = 255; c.g = 255; c.b = 255;
         }
-
         SDL_Surface* glyph_surf = TTF_RenderGlyph_Solid(font, ch, c);
         texture_cache[ch-32] = SDL_CreateTextureFromSurface(renderer, glyph_surf);
         SDL_FreeSurface(glyph_surf);
@@ -109,18 +109,20 @@ int main()
     logr.w = mapr.w;
     logr.h = mapr.h;
 
-    logr.x = (mapr.w*map_width)+logr.w;
-    logr.y = 0;
+    mapr.w = ((SCREEN_WIDTH/4)*3)/MAP_WIDTH;
+    mapr.h = SCREEN_HEIGHT/MAP_HEIGHT;
 
-    // TODO: assign map_width/height dynamicly
+    logr.x = (mapr.w*MAP_WIDTH)+logr.w;
+    logr.y = 0;
 
     int logr_startx = logr.x, logr_starty = logr.y;
 
-    // Initalize BSP_node root
     bsp_node_t root;
     root.parent = NULL;
-    root.r.w = map_width;
-    root.r.h = map_height;
+    root.r.w = MAP_WIDTH;
+    root.r.h = MAP_HEIGHT;
+    root.r.x = 0;
+    root.r.y = 0;
 
     bsp_queue_t* q = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
     q->data = &root;
@@ -129,14 +131,10 @@ int main()
     for (bsp_queue_t* qPtr = q; qPtr->data != NULL; qPtr = qPtr->next)
     {
          const int err = insert_into_bsp_tree(qPtr->data, rand()%2);
-
-         // get to the end of the list
          bsp_queue_t* eol;
          for (eol = qPtr; eol->next != NULL; eol=eol->next);
 
          eol->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-//            printf("CURR: W: %d, H: %d\n", curr->data->r.w, curr->data->r.h);
-
          if (err == 0)
          {
              eol->next->data = qPtr->data->children[0];
@@ -149,45 +147,43 @@ int main()
              eol->next->data = qPtr->data->children[1];
     }
 
-        // this will happen when we are building the rooms
-//        bsp_queue_t* temp = q;
-//        q = q->next;
-//        free(temp);
-
-    tiles_e map[map_width*map_height];
-    for (int i=0; i < map_width*map_height; i++)
+    tiles_e map[MAP_WIDTH*MAP_HEIGHT];
+    for (int i=0; i < MAP_WIDTH*MAP_HEIGHT; i++)
         map[i] = SPACE;
 
-    for (; q->data != NULL; q=q->next) {
-        SDL_Rect rm = q->data->r;
-    for (int y=0; y < map_height; y++)
+    for (; q->data != NULL; )
     {
-        for (int x=0; x < map_width; x++)
+        SDL_Rect rm = q->data->r;
+        for (int y=0; y < MAP_HEIGHT; y++)
         {
-            if (x >= rm.x && x <= rm.w + rm.x
-                        && (y == rm.y || y == rm.h + rm.y))
+            for (int x=0; x < MAP_WIDTH; x++)
             {
-                map[(y*map_width)+x] = WALL;
-            }
-            else if (y > rm.y && y < rm.h + rm.y
-                    && (x == rm.x || x == rm.w + rm.x))
-            {
-                map[(y*map_width)+x] = WALL;
-            }
-            else if (x > rm.x && x < rm.w + rm.x
-                    && y > rm.y && y < rm.h + rm.y)
-            {
-                map[(y*map_width)+x] = FLOOR;
+                if (x >= rm.x && x <= rm.w + rm.x
+                            && (y == rm.y || y == rm.h + rm.y))
+                {
+                    map[(y*MAP_WIDTH)+x] = WALL;
+                }
+                else if (y > rm.y && y < rm.h + rm.y
+                        && (x == rm.x || x == rm.w + rm.x))
+                {
+                    map[(y*MAP_WIDTH)+x] = WALL;
+                }
+                else if (x > rm.x && x < rm.w + rm.x
+                        && y > rm.y && y < rm.h + rm.y)
+                {
+                    map[(y*MAP_WIDTH)+x] = FLOOR;
+                }
             }
         }
-    }}
+        bsp_queue_t* temp = q;
+        q = q->next;
+        free(temp);
+    }
 
     SDL_Point player_pos;
-//    player_pos.x = (rm.w/2) + rm.x;
-//    player_pos.y = (rm.h/2) + rm.y;
-    player_pos.x = map_width/2;
-    player_pos.y = map_height/2;
-    map[(player_pos.y*map_width)+player_pos.x] = PLAYER;
+    player_pos.x = MAP_WIDTH/2;
+    player_pos.y = MAP_HEIGHT/2;
+    map[(player_pos.y*MAP_WIDTH)+player_pos.x] = PLAYER;
 
     SDL_Event event;
     ////////////////////////////
@@ -195,15 +191,15 @@ int main()
     while(1) {
     if (initalrender)  // dirty hack TODO(Caleb): fix this
     {
-        for (int y=0; y < map_height; y++)
+        for (int y=0; y < MAP_HEIGHT; y++)
         {
-            for (int x=0; x < map_width; x++)
+            for (int x=0; x < MAP_WIDTH; x++)
             {
                 mapr.x = x*mapr.w;
                 mapr.y = y*mapr.h;
                 SDL_RenderCopy(
                         renderer,
-                        texture_cache[map[(y*map_width)+x]],
+                        texture_cache[map[(y*MAP_WIDTH)+x]],
                         NULL,   // srcrect
                         &mapr
                 );
@@ -220,41 +216,41 @@ int main()
             SDL_Rect map_clip;
             map_clip.x = 0;
             map_clip.y = 0;
-            map_clip.w = map_width*mapr.w;
-            map_clip.h = map_height*mapr.h;
+            map_clip.w = MAP_WIDTH*mapr.w;
+            map_clip.h = MAP_HEIGHT*mapr.h;
             SDL_RenderFillRect(renderer, &map_clip);
 
            switch(event.key.keysym.sym)
            {
                case SDLK_d:
-                   if (map[(player_pos.y*map_width)+player_pos.x+1] != WALL)
+                   if (map[(player_pos.y*MAP_WIDTH)+player_pos.x+1] != WALL)
                    {
-                       map[(player_pos.y*map_width)+player_pos.x] = FLOOR;
-                       map[(player_pos.y*map_width)+player_pos.x+1] = PLAYER;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x] = FLOOR;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x+1] = PLAYER;
                        player_pos.x++;
                    }
                    break;
                case SDLK_a:
-                   if (map[(player_pos.y*map_width)+player_pos.x-1] != WALL)
+                   if (map[(player_pos.y*MAP_WIDTH)+player_pos.x-1] != WALL)
                    {
-                       map[(player_pos.y*map_width)+player_pos.x] = FLOOR;
-                       map[(player_pos.y*map_width)+player_pos.x-1] = PLAYER;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x] = FLOOR;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x-1] = PLAYER;
                        player_pos.x--;
                    }
                    break;
                case SDLK_w:
-                   if (map[((player_pos.y-1)*map_width)+player_pos.x] != WALL)
+                   if (map[((player_pos.y-1)*MAP_WIDTH)+player_pos.x] != WALL)
                    {
-                       map[(player_pos.y*map_width)+player_pos.x] = FLOOR;
-                       map[((player_pos.y-1)*map_width)+player_pos.x] = PLAYER;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x] = FLOOR;
+                       map[((player_pos.y-1)*MAP_WIDTH)+player_pos.x] = PLAYER;
                        player_pos.y--;
                    }
                    break;
                case SDLK_s:
-                   if (map[((player_pos.y+1)*map_width)+player_pos.x] != WALL)
+                   if (map[((player_pos.y+1)*MAP_WIDTH)+player_pos.x] != WALL)
                    {
-                       map[(player_pos.y*map_width)+player_pos.x] = FLOOR;
-                       map[((player_pos.y+1)*map_width)+player_pos.x] = PLAYER;
+                       map[(player_pos.y*MAP_WIDTH)+player_pos.x] = FLOOR;
+                       map[((player_pos.y+1)*MAP_WIDTH)+player_pos.x] = PLAYER;
                        player_pos.y++;
                    }
                    break;
@@ -279,7 +275,7 @@ int main()
                     char* msg = msgs[rand()%12];
                     for (char* msgPtr = msg; *msgPtr != '\0'; msgPtr++)
                     {
-                        if (logr.x >= 1280-(logr.w*2))
+                        if (logr.x >= SCREEN_WIDTH-(logr.w*2))
                         {
                             logr.x = logr_startx;
                             logr.y += logr.h;
@@ -295,7 +291,7 @@ int main()
                     }
                     logr.x = logr_startx;
 
-                    if (logr.y >= 800-(logr.h*2))
+                    if (logr.y >= SCREEN_HEIGHT-(logr.h*2))
                     {
                         logr.y = logr_starty;
                         SDL_RenderClear(renderer);
@@ -304,18 +300,16 @@ int main()
                break;
             } // switch
 
-            for (int y=0; y < map_height; y++)
+            for (int y=0; y < MAP_HEIGHT; y++)
             {
-                for (int x=0; x < map_width; x++)
+                for (int x=0; x < MAP_WIDTH; x++)
                 {
                     mapr.x = x*mapr.w;
                     mapr.y = y*mapr.h;
-                    SDL_RenderCopy(
-                            renderer,
-                            texture_cache[map[(y*map_width)+x]],
-                            NULL,   // srcrect
-                            &mapr
-                    );
+                    SDL_RenderCopy(renderer,
+                                   texture_cache[map[(y*MAP_WIDTH)+x]],
+                                   NULL,   // srcrect
+                                   &mapr);
                 }
             }
             SDL_RenderPresent(renderer);
@@ -367,8 +361,25 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
 #endif
 
     if (root->children[0] != NULL && root->children[1] != NULL)
+    {
+        root->children[0]->r.x = root->r.x;
+        root->children[0]->r.y = root->r.y;
+        root->children[1]->r.x = root->r.w;
+        root->children[1]->r.y = root->r.h;
         return 0;
-    if (root->children[0] != NULL)
+    }
+    else if (root->children[0] != NULL)
+    {
+        root->children[0]->r.x = root->r.x;
+        root->children[0]->r.y = root->r.y;
         return 1;
-    return 2;
+    }
+    else if (root->children[1] != NULL)
+    {
+        root->children[1]->r.x = root->r.x;
+        root->children[1]->r.y = root->r.y;
+        return 2;
+    }
+
+    return -1;
 }
