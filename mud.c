@@ -2,10 +2,22 @@
 #include <SDL2/SDL_video.h>
 #include <SDL2/SDL_rect.h>
 #include <SDL2/SDL_ttf.h>
-#include <stdlib.h>
 #include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+#include <netdb.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <poll.h>
 
-#define _DEBUG
+//#define _DEBUG
+#define REMOTEHOST "localhost"
+#define PORT "3491"
 #define FONT_PATH "ColleenAntics.ttf"
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 800
@@ -39,8 +51,77 @@ typedef struct _bsp_queue_t
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis);
 
+int get_serv_sock(void)
+{
+    int sockfd, err;
+    int yes=1; // setsockopt() SO_REUSEADDR
+    struct addrinfo hints, *ai, *p;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (( err = getaddrinfo(REMOTEHOST, PORT, &hints, &ai)) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(err));
+        exit(1);
+    }
+
+    for (p = ai; p != NULL; p = p->ai_next)
+    {
+        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sockfd < 0)
+        {
+            perror("socket");
+            continue;
+        }
+
+        // if the socket is already in use, use it.
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1)
+        {
+            close(sockfd);
+            perror("connect");
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(ai);
+
+    if (p == NULL)
+    {
+        fprintf(stderr, "failed to connect to server\n");
+        return 2;
+    }
+
+    return sockfd;
+}
+
 int main()
 {
+    int sockfd;
+    struct sockaddr_storage remoteaddr;
+    socklen_t addrlen;
+
+    char buf[256]; // msg data;
+
+    int fd_count = 0;
+    int fd_size = 1;
+    struct pollfd pfd;
+
+    sockfd = get_serv_sock();
+    if (sockfd == -1)
+    {
+        fprintf(stderr, "error connecting to server\n");
+        exit(1);
+    }
+
+    pfd.fd = sockfd;
+    pfd.events = POLLIN;
+
+    fd_count = 1;
+
+
+
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Window* window;
     window = SDL_CreateWindow(
@@ -209,6 +290,29 @@ int main()
         initalrender = 0;
     }
     //////////////////////////
+    // did the server send us anything? poll for .1 secs..
+    int poll_count = poll(&pfd, fd_count, 100);
+    if (poll_count == -1)
+    {
+        perror("poll");
+        exit(1);
+    }
+
+    if (pfd.revents & POLLIN)
+    {
+        int nbytes = recv(pfd.fd, buf, sizeof buf, 0);
+        if (nbytes <= 0)
+        {
+            if (nbytes == 0)
+                printf("connection closed\n");
+            else
+                perror("recv");
+
+            close(pfd.fd);
+        }
+        else
+            buf[nbytes] = 0;
+    }
     while(SDL_PollEvent(&event))
     {
         if (event.type == SDL_KEYDOWN)
@@ -259,22 +363,13 @@ int main()
                case SDLK_l:
                {
                     logr.y += logr.h;//*2;
-                    char* msgs[] = {
-                        "CALEB WAS HIT BY A BUS SHOULD'VE HAD MORE PEOPLE WRITING JPC",
-                        "KYLE IS DOING MATH...", "THE PLOT THICKENS",
-                        "ALEX WRITE'S A TRIE, IT WAS SUPER EFFECTIVE!",
-                        "NATHAN PRESSES A BROWN KEY SWITCH... EVERYONE HAS A MOMENT OF SILENCE TO APPRECIATE ITS CRISPINESS",
-                        "STEVE CASTS: MEMORY LEAK, MICRO'S SPRINT TAKES 99 DMG",
-                        "SAHAR & SPEPH SUMMON A PYTHON",
-                        "WHAT IS THE MEANING OF THIS", "YOU SHALL NOT PASS!!!",
-                        "CAN C&E PLS GO TO HANDMADE SEATTLE? :)",
-                        "HANDMADE SEATTLE 2021 WILL MAKE C&E 10X MORE PRODUCTIVE!!",
-                        "CHRIS USED A \"STATIC\", IT PROBABLY FIXED THE ISSUE"
-                    };
 
-                    char* msg = msgs[rand()%12];
-                    for (char* msgPtr = msg; *msgPtr != '\0'; msgPtr++)
+                    printf("%s\n", buf);
+                    for (char* msgPtr = buf; *msgPtr != 0; msgPtr++)
                     {
+                        if (*msgPtr == '\n')
+                            *msgPtr = ' ';
+
                         if (logr.x >= SCREEN_WIDTH-(logr.w*2))
                         {
                             logr.x = logr_startx;
