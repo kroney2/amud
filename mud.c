@@ -14,24 +14,31 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <poll.h>
+#include <pthread.h>
 
-//#define _DEBUG
+#define _DEBUG
+
+// server settings
 #define REMOTEHOST "localhost"
 #define PORT "3491"
+// font stuff
+#define ASCII_OFFSET 32
 #define FONT_PATH "ColleenAntics.ttf"
+
 #define SCREEN_WIDTH 1280
 #define SCREEN_HEIGHT 800
+// map dims
 #define FONT_SIZE 25
-#define MAP_WIDTH 40
-#define MAP_HEIGHT 25
+#define MAP_WIDTH 50
+#define MAP_HEIGHT 30
 #define MIN_RM_SIZE 4
 
 typedef enum _tiles_e
 {
-    WALL='#'-32,
-    FLOOR='.'-32,
-    PLAYER='@'-32,
-    SPACE=' '-32
+    WALL='#'-ASCII_OFFSET,
+    FLOOR='.'-ASCII_OFFSET,
+    PLAYER='@'-ASCII_OFFSET,
+    SPACE=' '-ASCII_OFFSET
 } tiles_e;
 
 typedef struct _bsp_node_t
@@ -39,88 +46,23 @@ typedef struct _bsp_node_t
     SDL_Rect r;
     struct _bsp_node_t* children[2];
     struct _bsp_node_t* parent;
-
 } bsp_node_t;
 
 typedef struct _bsp_queue_t
 {
     bsp_node_t* data;
     struct _bsp_queue_t* next;
-
 } bsp_queue_t;
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis);
-
-int get_serv_sock(void)
-{
-    int sockfd, err;
-    int yes=1; // setsockopt() SO_REUSEADDR
-    struct addrinfo hints, *ai, *p;
-
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    if (( err = getaddrinfo(REMOTEHOST, PORT, &hints, &ai)) != 0)
-    {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(err));
-        exit(1);
-    }
-
-    for (p = ai; p != NULL; p = p->ai_next)
-    {
-        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
-        if (sockfd < 0)
-        {
-            perror("socket");
-            continue;
-        }
-
-        // if the socket is already in use, use it.
-        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
-        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1)
-        {
-            close(sockfd);
-            perror("connect");
-            continue;
-        }
-        break;
-    }
-    freeaddrinfo(ai);
-
-    if (p == NULL)
-    {
-        fprintf(stderr, "failed to connect to server\n");
-        return 2;
-    }
-
-    return sockfd;
-}
+int get_serv_sock();
+void* poll_serv(void* arg);
 
 int main()
 {
-    int sockfd;
-    struct sockaddr_storage remoteaddr;
-    socklen_t addrlen;
-
     char buf[256]; // msg data;
-
-    int fd_count = 0;
-    int fd_size = 1;
-    struct pollfd pfd;
-
-    sockfd = get_serv_sock();
-    if (sockfd == -1)
-    {
-        fprintf(stderr, "error connecting to server\n");
-        exit(1);
-    }
-
-    pfd.fd = sockfd;
-    pfd.events = POLLIN;
-
-    fd_count = 1;
-
-
+    pthread_t th;
+    pthread_create(&th, NULL, poll_serv, buf);
 
     SDL_Init(SDL_INIT_VIDEO);
     SDL_Window* window;
@@ -164,10 +106,10 @@ int main()
     srand(time(NULL));
 
     SDL_Color c;
-    SDL_Texture* texture_cache[128-32];
-    for (Uint16 ch=32; ch < 128-32; ++ch)
+    SDL_Texture* texture_cache[128 - ASCII_OFFSET];
+    for (Uint16 ch = ASCII_OFFSET; ch < 128 - ASCII_OFFSET; ++ch)
     {
-        if (ch == '@')
+        if (ch == PLAYER + ASCII_OFFSET)
         {
             c.r = rand()%255; c.g = rand()%255; c.b = rand()%255;
         }
@@ -176,7 +118,8 @@ int main()
             c.r = 255; c.g = 255; c.b = 255;
         }
         SDL_Surface* glyph_surf = TTF_RenderGlyph_Solid(font, ch, c);
-        texture_cache[ch-32] = SDL_CreateTextureFromSurface(renderer, glyph_surf);
+        texture_cache[ch - ASCII_OFFSET] = SDL_CreateTextureFromSurface(renderer,
+                                                                        glyph_surf);
         SDL_FreeSurface(glyph_surf);
     }
     TTF_CloseFont(font);
@@ -231,7 +174,6 @@ int main()
     tiles_e map[MAP_WIDTH*MAP_HEIGHT];
     for (int i=0; i < MAP_WIDTH*MAP_HEIGHT; i++)
         map[i] = SPACE;
-
     for (; q->data != NULL; )
     {
         SDL_Rect rm = q->data->r;
@@ -260,6 +202,7 @@ int main()
         q = q->next;
         free(temp);
     }
+    free(q);
 
     SDL_Point player_pos;
     player_pos.x = MAP_WIDTH/2;
@@ -290,29 +233,6 @@ int main()
         initalrender = 0;
     }
     //////////////////////////
-    // did the server send us anything? poll for .1 secs..
-    int poll_count = poll(&pfd, fd_count, 100);
-    if (poll_count == -1)
-    {
-        perror("poll");
-        exit(1);
-    }
-
-    if (pfd.revents & POLLIN)
-    {
-        int nbytes = recv(pfd.fd, buf, sizeof buf, 0);
-        if (nbytes <= 0)
-        {
-            if (nbytes == 0)
-                printf("connection closed\n");
-            else
-                perror("recv");
-
-            close(pfd.fd);
-        }
-        else
-            buf[nbytes] = 0;
-    }
     while(SDL_PollEvent(&event))
     {
         if (event.type == SDL_KEYDOWN)
@@ -363,8 +283,6 @@ int main()
                case SDLK_l:
                {
                     logr.y += logr.h;//*2;
-
-                    printf("%s\n", buf);
                     for (char* msgPtr = buf; *msgPtr != 0; msgPtr++)
                     {
                         if (*msgPtr == '\n')
@@ -378,7 +296,7 @@ int main()
 
                         SDL_RenderCopy(
                                 renderer,
-                                texture_cache[*msgPtr-32],
+                                texture_cache[(int)*msgPtr-ASCII_OFFSET],
                                 NULL,   // srcrect
                                 &logr
                         );
@@ -417,11 +335,8 @@ int main()
 
 int insert_into_bsp_tree(bsp_node_t* root, int axis)
 {
-    if (root->r.w < MIN_RM_SIZE && root->r.h < MIN_RM_SIZE)
-        return -1;
-
-     int sizey = (root->r.h / 2)+(rand()%2);
-     int sizex = (root->r.w / 2)+(rand()%2);
+     int sizey = (root->r.h / 2);
+     int sizex = (root->r.w / 2);
 
      int part1_sz = (axis) ? sizey : sizex;
      int part2_sz = (axis) ? root->r.h - sizey
@@ -477,4 +392,96 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
     }
 
     return -1;
+}
+
+int get_serv_sock(void)
+{
+    int sockfd, err;
+    int yes=1; // setsockopt() SO_REUSEADDR
+    struct addrinfo hints, *ai, *p;
+
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (( err = getaddrinfo(REMOTEHOST, PORT, &hints, &ai)) != 0)
+    {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(err));
+        exit(1);
+    }
+
+    for (p = ai; p != NULL; p = p->ai_next)
+    {
+        sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
+        if (sockfd < 0)
+        {
+            perror("socket");
+            continue;
+        }
+
+        // if the socket is already in use, use it.
+        setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int));
+        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == -1)
+        {
+            close(sockfd);
+            perror("connect");
+            continue;
+        }
+        break;
+    }
+    freeaddrinfo(ai);
+
+    if (p == NULL)
+    {
+        fprintf(stderr, "failed to connect to server\n");
+        return 2;
+    }
+
+    return sockfd;
+}
+
+void* poll_serv(void* arg)
+{
+    int sockfd = get_serv_sock();
+    if (sockfd == -1)
+    {
+        fprintf(stderr, "error connecting to server\n");
+        exit(1);
+    }
+    struct pollfd pfd;
+    pfd.fd = sockfd;
+    pfd.events = POLLIN;
+
+    int fd_count = 0;
+    int fd_size = 1;
+    fd_count = 1;
+    char* buf = (char*)arg;
+    while(1)
+    {
+        int poll_count = poll(&pfd, fd_count, -1);
+        if (poll_count == -1)
+        {
+            perror("poll");
+            exit(1);
+        }
+        if (pfd.revents & POLLIN)
+        {
+            int nbytes = recv(pfd.fd, buf, 255, 0);
+            if (nbytes <= 0)
+            {
+                if (nbytes == 0)
+                {
+                    printf("connection closed\n");
+                    break;
+                }
+                else
+                    perror("recv");
+
+                close(pfd.fd);
+                exit(1);
+            }
+            else
+                buf[nbytes] = 0;
+        }
+    }
+    pthread_exit(0);
 }

@@ -119,16 +119,11 @@ int main()
     while(1)
     {
         printf("> ");
-        fgets(msg, 256, stdin);
+        fgets(msg, 255, stdin);
         if (*msg == '\n')
         {
             close(new_fd);
             break;
-        }
-        for (char* p = msg; *p != 0; p++)
-        {
-            if (*p == '\n')
-                *p == ' ';
         }
         if (send(new_fd, msg, strlen(msg), 0) == -1)
             perror("send");
