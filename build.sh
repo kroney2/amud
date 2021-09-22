@@ -15,4 +15,4 @@ then
 fi
 
 # libsdl2-dev
-gcc mud.c -lSDL2 -lSDL2_ttf -o mud
+gcc mud.c -lSDL2 -lSDL2_ttf -lpthread -o mud
