@@ -16,7 +16,7 @@
 #include <poll.h>
 #include <pthread.h>
 
-#define _DEBUG
+//#define _DEBUG
 
 // server settings
 #define REMOTEHOST "localhost"
@@ -29,9 +29,10 @@
 #define SCREEN_HEIGHT 800
 // map dims
 #define FONT_SIZE 25
-#define MAP_WIDTH 50
-#define MAP_HEIGHT 30
-#define MIN_RM_SIZE 4
+#define MAP_WIDTH 30
+#define MAP_HEIGHT 20
+#define MIN_RM_SIZE 8
+#define MAX_RM_SIZE MAP_WIDTH - MIN_RM_SIZE
 
 typedef enum _tiles_e
 {
@@ -44,6 +45,7 @@ typedef enum _tiles_e
 typedef struct _bsp_node_t
 {
     SDL_Rect r;
+    int connected;
     struct _bsp_node_t* children[2];
     struct _bsp_node_t* parent;
 } bsp_node_t;
@@ -54,13 +56,14 @@ typedef struct _bsp_queue_t
     struct _bsp_queue_t* next;
 } bsp_queue_t;
 
-int insert_into_bsp_tree(bsp_node_t* root, int axis);
-int get_serv_sock();
+int make_rms(bsp_node_t* root, int axis);
+int get_conn();
 void* poll_serv(void* arg);
 
 int main()
 {
     char buf[256]; // msg data;
+    strcpy(buf, "NOT CONNECTED TO SERV!");
     pthread_t th;
     pthread_create(&th, NULL, poll_serv, buf);
 
@@ -107,7 +110,7 @@ int main()
 
     SDL_Color c;
     SDL_Texture* texture_cache[128 - ASCII_OFFSET];
-    for (Uint16 ch = ASCII_OFFSET; ch < 128 - ASCII_OFFSET; ++ch)
+    for (Uint16 ch = ASCII_OFFSET; ch < 128; ++ch)
     {
         if (ch == PLAYER + ASCII_OFFSET)
         {
@@ -133,10 +136,10 @@ int main()
     logr.w = mapr.w;
     logr.h = mapr.h;
 
-    mapr.w = ((SCREEN_WIDTH/4)*3)/MAP_WIDTH;
+    mapr.w = ((SCREEN_WIDTH / 4) * 3)/MAP_WIDTH;
     mapr.h = SCREEN_HEIGHT/MAP_HEIGHT;
 
-    logr.x = (mapr.w*MAP_WIDTH)+logr.w;
+    logr.x = (mapr.w * MAP_WIDTH)+logr.w;
     logr.y = 0;
 
     int logr_startx = logr.x, logr_starty = logr.y;
@@ -154,60 +157,67 @@ int main()
 
     for (bsp_queue_t* qPtr = q; qPtr->data != NULL; qPtr = qPtr->next)
     {
-         const int err = insert_into_bsp_tree(qPtr->data, rand()%2);
-         bsp_queue_t* eol;
-         for (eol = qPtr; eol->next != NULL; eol=eol->next);
+        int bsp_axis = rand()%2;
+        int nrms = make_rms(qPtr->data, bsp_axis);
 
-         eol->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-         if (err == 0)
-         {
-             eol->next->data = qPtr->data->children[0];
-             eol->next->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
-             eol->next->next->data = qPtr->data->children[1];
-         }
-         else if (err == 1)
-             eol->next->data = qPtr->data->children[0];
-         else if (err == 2)
-             eol->next->data = qPtr->data->children[1];
+        bsp_queue_t* tail;
+        for (tail = qPtr; tail->next != NULL; tail = tail->next);
+        tail->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+
+        if (nrms == 2)
+        {
+            tail->next->data = qPtr->data->children[0];
+            tail->next->next = (bsp_queue_t*)calloc(1, sizeof(bsp_queue_t));
+            tail->next->next->data = qPtr->data->children[1];
+        }
+        else if (nrms == 1)
+        {
+            if (qPtr->data->children[0] != NULL)
+                tail->next->data = qPtr->data->children[0];
+            else
+                tail->next->data = qPtr->data->children[1];
+        }
+        else
+            break;
+#ifdef _DEBUG
+    bsp_node_t* p = NULL;
+    if ((p = qPtr->data->children[0]) != NULL)
+        printf("RM1: x: %d, y: %d, w: %d, h: %d\n", p->r.x, p->r.y, p->r.w, p->r.h);
+    if ((p = qPtr->data->children[1]) != NULL)
+        printf("RM2: x: %d, y: %d, w: %d, h: %d\n", p->r.x, p->r.y, p->r.w, p->r.h);
+#endif
     }
 
-    tiles_e map[MAP_WIDTH*MAP_HEIGHT];
-    for (int i=0; i < MAP_WIDTH*MAP_HEIGHT; i++)
-        map[i] = SPACE;
-    for (; q->data != NULL; )
+    tiles_e map[MAP_WIDTH * MAP_HEIGHT];
+    for (int i=0; i < MAP_WIDTH * MAP_HEIGHT; i++)
+        map[i] = FLOOR;
+    for (bsp_queue_t* qPtr = q; qPtr->data != NULL; qPtr = qPtr->next)
     {
-        SDL_Rect rm = q->data->r;
+        SDL_Rect rm = qPtr->data->r;
         for (int y=0; y < MAP_HEIGHT; y++)
         {
             for (int x=0; x < MAP_WIDTH; x++)
             {
-                if (x >= rm.x && x <= rm.w + rm.x
-                            && (y == rm.y || y == rm.h + rm.y))
-                {
-                    map[(y*MAP_WIDTH)+x] = WALL;
-                }
-                else if (y > rm.y && y < rm.h + rm.y
-                        && (x == rm.x || x == rm.w + rm.x))
-                {
-                    map[(y*MAP_WIDTH)+x] = WALL;
-                }
-                else if (x > rm.x && x < rm.w + rm.x
-                        && y > rm.y && y < rm.h + rm.y)
-                {
-                    map[(y*MAP_WIDTH)+x] = FLOOR;
-                }
+                // top
+                if (y == rm.y)
+                   map[(y * MAP_WIDTH) + x] = WALL;
+                // right
+                if (y >= rm.y && y < rm.y + rm.h && x == (rm.x + rm.w) - 1)
+                    map[(y * MAP_WIDTH) + x] = WALL;
+                // bottom
+                if (y == (rm.y + rm.h) - 1)
+                    map[(y * MAP_WIDTH) + x] = WALL;
+                // left
+                if (y >= rm.y && y < rm.y + rm.h && x == rm.x)
+                    map[(y * MAP_WIDTH) + x] = WALL;
             }
         }
-        bsp_queue_t* temp = q;
-        q = q->next;
-        free(temp);
     }
-    free(q);
 
     SDL_Point player_pos;
-    player_pos.x = MAP_WIDTH/2;
-    player_pos.y = MAP_HEIGHT/2;
-    map[(player_pos.y*MAP_WIDTH)+player_pos.x] = PLAYER;
+    player_pos.x = MAP_WIDTH / 2;
+    player_pos.y = MAP_HEIGHT / 2;
+    map[(player_pos.y * MAP_WIDTH) + player_pos.x] = PLAYER;
 
     SDL_Event event;
     ////////////////////////////
@@ -223,7 +233,7 @@ int main()
                 mapr.y = y*mapr.h;
                 SDL_RenderCopy(
                         renderer,
-                        texture_cache[map[(y*MAP_WIDTH)+x]],
+                        texture_cache[map[(y * MAP_WIDTH) + x]],
                         NULL,   // srcrect
                         &mapr
                 );
@@ -333,14 +343,26 @@ int main()
     return 0;
 }
 
-int insert_into_bsp_tree(bsp_node_t* root, int axis)
+void init_bsp_node(bsp_node_t* node, bsp_node_t* parent,
+    int w, int h, int x, int y)
 {
-     int sizey = (root->r.h / 2);
-     int sizex = (root->r.w / 2);
+    node->r.w = w;
+    node->r.h = h;
+    node->r.x = x;
+    node->r.y = y;
+    node->parent = parent;
+    node->connected = 0;
+}
 
-     int part1_sz = (axis) ? sizey : sizex;
-     int part2_sz = (axis) ? root->r.h - sizey
-         : root->r.w - sizex;
+int make_rms(bsp_node_t* root, int axis)
+{
+    int nrms = 0;
+
+    float range = (rand() % (MAX_RM_SIZE - MIN_RM_SIZE)) / 10.0f;
+    int sizey = root->r.h * range;
+    int sizex = root->r.w * range;
+    int part1_sz = (axis) ? sizey : sizex;
+    int part2_sz = (axis) ? root->r.h - sizey : root->r.w - sizex;
 
     root->children[0] = NULL;
     root->children[1] = NULL;
@@ -348,53 +370,35 @@ int insert_into_bsp_tree(bsp_node_t* root, int axis)
     if (part1_sz >= MIN_RM_SIZE)
     {
         root->children[0] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-        root->children[0]->r.w = (axis) ? root->r.w : part1_sz;
-        root->children[0]->r.h = (axis) ? part1_sz : root->r.h;
-        root->children[0]->parent = root;
+        int w = (axis) ? root->r.w : part1_sz;
+        int h = (axis) ? part1_sz : root->r.h;
+        int x = root->r.x;
+        int y = root->r.y;
+        init_bsp_node(root->children[0], root, w, h, x, y);
+        nrms++;
     }
-
     if (part2_sz >= MIN_RM_SIZE)
     {
         root->children[1] = (bsp_node_t*)calloc(1, sizeof(bsp_node_t));
-        root->children[1]->r.w = (axis) ? root->r.w : root->r.w - part1_sz;
-        root->children[1]->r.h = (axis) ? root->r.h - part1_sz : root->r.h;
-        root->children[1]->parent = root;
+        int w = (axis) ? root->r.w : part2_sz;
+        int h = (axis) ? part2_sz : root->r.h;
+        int x = root->r.x;
+        int y = root->r.y;
+        if (root->children[0] != NULL)
+        {
+            if (axis)
+                y+=h;
+            else
+             x+=w;
+        }
+        init_bsp_node(root->children[1], root, w, h, x, y);
+        nrms++;
     }
 
-#ifdef _DEBUG
-    if (root->children[0] != NULL || root->children[1] != NULL)
-        printf("ROOT: W: %d, H: %d\n", root->r.w, root->r.h);
-    if (root->children[0] != NULL)
-        printf("|-Child1 W: %d, H: %d\n", root->children[0]->r.w, root->children[0]->r.h);
-    if (root->children[1] != NULL)
-        printf("|-Child2 W: %d, H: %d\n", root->children[1]->r.w, root->children[1]->r.h);
-#endif
-
-    if (root->children[0] != NULL && root->children[1] != NULL)
-    {
-        root->children[0]->r.x = root->r.x;
-        root->children[0]->r.y = root->r.y;
-        root->children[1]->r.x = root->r.w;
-        root->children[1]->r.y = root->r.h;
-        return 0;
-    }
-    else if (root->children[0] != NULL)
-    {
-        root->children[0]->r.x = root->r.x;
-        root->children[0]->r.y = root->r.y;
-        return 1;
-    }
-    else if (root->children[1] != NULL)
-    {
-        root->children[1]->r.x = root->r.x;
-        root->children[1]->r.y = root->r.y;
-        return 2;
-    }
-
-    return -1;
+    return nrms;
 }
 
-int get_serv_sock(void)
+int get_conn(void)
 {
     int sockfd, err;
     int yes=1; // setsockopt() SO_REUSEADDR
@@ -441,7 +445,7 @@ int get_serv_sock(void)
 
 void* poll_serv(void* arg)
 {
-    int sockfd = get_serv_sock();
+    int sockfd = get_conn();
     if (sockfd == -1)
     {
         fprintf(stderr, "error connecting to server\n");
